@@ -1,11 +1,16 @@
+const Clutter = imports.gi.Clutter;
 const Gio = imports.gi.Gio;
 const GLib = imports.gi.GLib;
 const Lang = imports.lang;
-
+const Mainloop = imports.mainloop;
 const Main = imports.ui.main;
 const Meta = imports.gi.Meta;
+const Shell = imports.gi.Shell;
+const St = imports.gi.St;
+const Tweener = imports.ui.tweener;
 const WindowManager = imports.ui.windowManager;
 const WorkspaceSwitcherPopup = imports.ui.workspaceSwitcherPopup;
+
 
 /**********/
 /* CONFIG */
@@ -17,116 +22,89 @@ const workspaceLoop = true;
 /*******************/
 /* WORKSPACE POPUP */
 /*******************/
-const SwitcherPopup = new Lang.Class({
-    Name: 'SwitcherPopup',
+const ANIMATION_TIME = 0.1;
+const DISPLAY_TIMEOUT = 600;
+
+const MyWorkspaceSwitcherPopup = new Lang.Class({
+    Name: 'MyWorkspaceSwitcherPopup',
     Extends:  WorkspaceSwitcherPopup.WorkspaceSwitcherPopup,
-
-    _getPreferredHeight : function (actor, forWidth, alloc) {
-        let children = this._list.get_children();
-        let primary = Main.layoutManager.primaryMonitor;
-
-        let availHeight = primary.height;
-        availHeight -= Main.panel.actor.height;
-        availHeight -= bottomPanel.actor.height;
-        availHeight -= this.actor.get_theme_node().get_vertical_padding();
-        availHeight -= this._container.get_theme_node().get_vertical_padding();
-        availHeight -= this._list.get_theme_node().get_vertical_padding();
-
-        let [childMinHeight, childNaturalHeight] = children[0].get_preferred_height(-1);
-
-        let height = nrows * childNaturalHeight;
-
-        let spacing = this._itemSpacing * (nrows - 1);
-        height += spacing;
-        height = Math.min(height, availHeight);
-
-        this._childHeight = (height - spacing) / nrows;
-
-        alloc.min_size = height;
-        alloc.natural_size = height;
-    },
-
-    _getPreferredWidth : function (actor, forHeight, alloc) {
-        let children = this._list.get_children();
-        let primary = Main.layoutManager.primaryMonitor;
-
-        let availWidth = primary.width;
-        availWidth -= this.actor.get_theme_node().get_horizontal_padding();
-        availWidth -= this._container.get_theme_node().get_horizontal_padding();
-        availWidth -= this._list.get_theme_node().get_horizontal_padding();
-
-        let ncols = get_ncols();
-
-        let [childMinHeight, childNaturalHeight] = children[0].get_preferred_height(-1);
-        let childNaturalWidth = childNaturalHeight * primary.width/primary.height;
-
-        let width = ncols * childNaturalWidth;
-
-        let spacing = this._itemSpacing * (ncols - 1);
-        width += spacing;
-        width = Math.min(width, availWidth);
-
-        this._childWidth = (width - spacing) / ncols;
-
-        alloc.min_size = width;
-        alloc.natural_size = width;
-    },
-
-    _allocate : function (actor, box, flags) {
-        let children = this._list.get_children();
-        let childBox = new Clutter.ActorBox();
-
-        let ncols = get_ncols();
-
-        for ( let ir=0; ir<nrows; ++ir ) {
-            for ( let ic=0; ic<ncols; ++ic ) {
-                let i = ncols*ir + ic;
-                let x = box.x1 + ic * (this._childWidth + this._itemSpacing);
-                childBox.x1 = x;
-                childBox.x2 = x + this._childWidth;
-                let y = box.y1 + ir * (this._childHeight + this._itemSpacing);
-                childBox.y1 = y;
-                childBox.y2 = y + this._childHeight;
-                children[i].allocate(childBox, flags);
-            }
-        }
-    },
-
-    _redraw : function(direction, activeWorkspaceIndex) {
+    _redisplay: function() {
         this._list.destroy_all_children();
 
         for (let i = 0; i < global.screen.n_workspaces; i++) {
             let indicator = null;
 
-           if (i == activeWorkspaceIndex && direction == Meta.MotionDirection.LEFT)
-               indicator = new St.Bin({ style_class: 'ws-switcher-active-left' });
-           else if (i == activeWorkspaceIndex && direction == Meta.MotionDirection.RIGHT)
-               indicator = new St.Bin({ style_class: 'ws-switcher-active-right' });
-           else if (i == activeWorkspaceIndex && direction == Meta.MotionDirection.UP)
-               indicator = new St.Bin({ style_class: 'ws-switcher-active-up' });
-           else if(i == activeWorkspaceIndex && direction == Meta.MotionDirection.DOWN)
-               indicator = new St.Bin({ style_class: 'ws-switcher-active-down' });
+           if (i == this._activeWorkspaceIndex)
+               indicator = new St.Bin({ style_class: 'ws-switcher-active' });
            else
                indicator = new St.Bin({ style_class: 'ws-switcher-box' });
 
            this._list.add_actor(indicator);
 
         }
+
+        let workArea = Main.layoutManager.getWorkAreaForMonitor(Main.layoutManager.primaryIndex);
+        let [containerMinHeight, containerNatHeight] = this._container.get_preferred_height(global.screen_width);
+        let [containerMinWidth, containerNatWidth] = this._container.get_preferred_width(containerNatHeight);
+        this._container.x = workArea.x + Math.floor((workArea.width - containerNatWidth) / 2);
+        this._container.y = workArea.y + Math.floor((workArea.height - containerNatHeight) / 2);
     },
+    
+    _getPreferredHeight : function (actor, forWidth, alloc) {
+        let workArea = Main.layoutManager.getWorkAreaForMonitor(Main.layoutManager.primaryIndex);
 
-    display : function(direction, activeWorkspaceIndex) {
-        this._redraw(direction, activeWorkspaceIndex);
-        if (this._timeoutId != 0)
-            Mainloop.source_remove(this._timeoutId);
-        this._timeoutId = Mainloop.timeout_add(500, Lang.bind(this, this._onTimeout));
-        this._show();
-    }
+        let availHeight = workArea.height;
+        availHeight -= this.actor.get_theme_node().get_vertical_padding();
+        availHeight -= this._container.get_theme_node().get_vertical_padding();
+        availHeight -= this._list.get_theme_node().get_vertical_padding();
+
+        let spacing = this._itemSpacing * (workspaceRows - 1);
+        let height = availHeight/3;
+
+        this._childHeight = (height - spacing) / workspaceRows;
+
+        alloc.min_size = height;
+        alloc.natural_size = height;
+    },
+    
+    _getPreferredWidth : function (actor, forHeight, alloc) {
+        let workArea = Main.layoutManager.getWorkAreaForMonitor(Main.layoutManager.primaryIndex);
+        let availWidth = workArea.width;
+        availWidth -= this.actor.get_theme_node().get_horizontal_padding();
+        availWidth -= this._container.get_theme_node().get_horizontal_padding();
+        availWidth -= this._list.get_theme_node().get_horizontal_padding();        
+        
+        let spacing = this._itemSpacing * (workspaceCols - 1);
+        this._childWidth = Math.round(this._childHeight * workArea.width / workArea.height);
+        if(workspaceCols*this._childWidth+spacing > availWidth) this._childWidth = (availWidth - spacing) / workspaceCols;
+
+        alloc.min_size = Math.min((this._childWidth+this._itemSpacing)*workspaceCols, availWidth);
+        alloc.natural_size = Math.min((this._childWidth+this._itemSpacing)*workspaceCols, availWidth);
+    },
+    
+    _allocate : function (actor, box, flags) {
+        let children = this._list.get_children();
+        let childBox = new Clutter.ActorBox();
+
+        let y = box.y1;
+        let prevChildBoxY2 = box.y1 - this._itemSpacing;
+        for(let row=0; row<workspaceRows; row++) {
+            for(let col=0; col<workspaceCols; col++) {
+                childBox.x1 = box.x1 + col*(this._childWidth+this._itemSpacing);
+                childBox.x2 = childBox.x1+this._childWidth;
+                childBox.y1 = box.y1 + row*(this._childHeight+this._itemSpacing);
+                childBox.y2 = childBox.y1+this._childHeight;
+                children[row*workspaceCols+col].allocate(childBox, flags);
+            }
+        }
+    },
 });
-
 
 /***************************/
 /* WORKSPACE GRID HANDLING */
 /***************************/
+
+let currentIndex = 0;
 function myGet_neighbor(direction) {
 	var index = this.index();
 	
@@ -159,7 +137,7 @@ function myGet_neighbor(direction) {
             if(index%workspaceCols != workspaceCols-1) index = index+1;
 	    }
 	}
-		
+    currentIndex = index;
 	return global.screen.get_workspace_by_index(index);
 }
 
@@ -169,23 +147,25 @@ function myShowWorkspaceSwitcher(display, screen, window, binding) {
     let newWs;
 
     if (action == 'switch') {
-        newWs = this.actionMoveWorkspace(direction);
+        this.actionMoveWorkspace(direction);
     } else {
-        newWs = this.actionMoveWindow(window, direction);
+        this.actionMoveWindow(window, direction);
     }
-    
-    if (!Main.overview.visible) {
-        if (this._workspaceSwitcherPopup == null) {
-            this._workspaceSwitcherPopup = new SwitcherPopup();
-            this._workspaceSwitcherPopup.connect('destroy',
-                Lang.bind(this, function() {
-                    this._workspaceSwitcherPopup = null;
-                }));
-        }
-        this._workspaceSwitcherPopup.display(direction, newWs.index());
-    }
+    let switcher = new MyWorkspaceSwitcherPopup();
+    switcher.display(direction, currentIndex);
 }
 
+function setWorkspacesNumber(number) {
+    if(global.screen.n_workspaces != number) {
+        if(global.screen.n_workspaces < number) {
+            while(global.screen.n_workspaces < number)
+                global.screen.append_new_workspace(false, global.get_current_time());
+        } else {
+            for(let i=global.screen.n_workspaces-1; i>=number; i--)
+                global.screen.remove_workspace(global.screen.get_workspace_by_index(i), global.get_current_time());
+        }
+    }
+}
 
 /************************/
 /* INITIALIZATION STUFF */
@@ -193,6 +173,8 @@ function myShowWorkspaceSwitcher(display, screen, window, binding) {
 let origGet_neighbor, origShowWorkspaceSwitcher, origWorkspaceNumber;
 function init() {
 	origGet_neighbor = Meta.Workspace.prototype.get_neighbor;
+	origShowWorkspaceSwitcher = WindowManager.WindowManager.prototype._showWorkspaceSwitcher;
+
     WindowManager.WindowManager.prototype._reset = function() {
         Meta.keybindings_set_custom_handler('switch-to-workspace-left',
                     Lang.bind(this, this._showWorkspaceSwitcher));
@@ -213,19 +195,6 @@ function init() {
 
         this._workspaceSwitcherPopup = null;
     };
-	origShowWorkspaceSwitcher = WindowManager.WindowManager.prototype._showWorkspaceSwitcher;
-}
-
-function setWorkspacesNumber(number) {
-    if(global.screen.n_workspaces != number) {
-        if(global.screen.n_workspaces < number) {
-            while(global.screen.n_workspaces < number)
-                global.screen.append_new_workspace(false, global.get_current_time());
-        } else {
-            for(let i=global.screen.n_workspaces-1; i>=number; i--)
-                global.screen.remove_workspace(global.screen.get_workspace_by_index(i), global.get_current_time());
-        }
-    }
 }
 
 function enable() {
