@@ -1,0 +1,7 @@
+{
+	"shell-version": ["3.6", "3.8"],
+	"uuid": "WorkspaceGrid@webtito.be",
+	"name": "Workspace Grid",
+	"description": "Use workspaces as a grid. Options to set the size of the grid, to show a switcher popup and to allow wrap-around.",
+	"url" : "https://github.com/Tito1337/gnome3-WorkspaceGrid"
+}

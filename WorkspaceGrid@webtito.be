@@ -1,1 +1,0 @@
-/home/tito/.local/share/gnome-shell/extensions/WorkspaceGrid@webtito.be
